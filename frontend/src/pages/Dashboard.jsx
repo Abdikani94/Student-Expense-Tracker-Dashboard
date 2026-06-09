@@ -295,10 +295,6 @@ function Dashboard() {
             <p>{pageDescription[activePage]}</p>
           </div>
 
-          <div className="status-badge">
-            <CreditCard size={18} />
-            MongoDB Connected
-          </div>
         </header>
 
         {activePage === "dashboard" && (
@@ -531,9 +527,9 @@ function BudgetSection({
 
       <div className="budget-controls">
         <input
-          type="number"
+          type="integer"
           value={monthlyBudget}
-          min="1"
+          min="0"
           onChange={(e) => setMonthlyBudget(Number(e.target.value))}
         />
 

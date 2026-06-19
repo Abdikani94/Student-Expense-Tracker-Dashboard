@@ -7,7 +7,7 @@ import {
   CreditCard,
 } from "lucide-react";
 
-import API from "../services/api";
+import { supabase } from "../services/supabaseClient";
 import Sidebar from "../components/Sidebar";
 import SummaryCard from "../components/SummaryCard";
 import ExpenseForm from "../components/ExpenseForm";
@@ -24,6 +24,7 @@ function Dashboard() {
   const [filterPayment, setFilterPayment] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortOrder, setSortOrder] = useState("newest");
+  const [loading, setLoading] = useState(false);
 
   const [monthlyBudget, setMonthlyBudget] = useState(() => {
     const savedBudget = localStorage.getItem("monthlyBudget");
@@ -56,11 +57,32 @@ function Dashboard() {
 
   const fetchExpenses = async () => {
     try {
-      const res = await API.get("/expenses");
-      const expenseData = Array.isArray(res.data) ? res.data : res.data.data;
-      setExpenses(expenseData || []);
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from("expenses")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      const formattedExpenses = (data || []).map((expense) => ({
+        _id: expense.id,
+        title: expense.title,
+        amount: Number(expense.amount),
+        category: expense.category,
+        paymentMethod: expense.payment_method,
+        date: expense.date,
+        notes: expense.notes || "",
+        createdAt: expense.created_at,
+      }));
+
+      setExpenses(formattedExpenses);
     } catch (error) {
-      console.error("Failed to fetch expenses:", error);
+      console.error("Failed to fetch expenses:", error.message);
+      alert("Failed to load expenses from Supabase.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -107,6 +129,16 @@ function Dashboard() {
 
     const newAmount = Number(form.amount);
 
+    if (!form.title.trim()) {
+      alert("Expense title is required.");
+      return;
+    }
+
+    if (!form.date) {
+      alert("Expense date is required.");
+      return;
+    }
+
     if (newAmount <= 0) {
       alert("Expense amount must be greater than 0.");
       return;
@@ -123,6 +155,7 @@ function Dashboard() {
       const currentExpense = expenses.find(
         (expense) => expense._id === editingId
       );
+
       currentExpenseAmount = currentExpense ? Number(currentExpense.amount) : 0;
     }
 
@@ -138,26 +171,37 @@ function Dashboard() {
     }
 
     const expenseData = {
-      ...form,
+      title: form.title.trim(),
       amount: newAmount,
+      category: form.category,
+      payment_method: form.paymentMethod,
+      date: form.date,
+      notes: form.notes.trim(),
     };
 
     try {
+      setLoading(true);
+
       if (editingId) {
-        await API.put(`/expenses/${editingId}`, expenseData);
+        const { error } = await supabase
+          .from("expenses")
+          .update(expenseData)
+          .eq("id", editingId);
+
+        if (error) throw error;
       } else {
-        await API.post("/expenses", expenseData);
+        const { error } = await supabase.from("expenses").insert(expenseData);
+
+        if (error) throw error;
       }
 
       resetForm();
       fetchExpenses();
     } catch (error) {
-      console.error("Failed to save expense:", error);
-
-      alert(
-        error.response?.data?.message ||
-          "Something went wrong while saving expense."
-      );
+      console.error("Failed to save expense:", error.message);
+      alert(error.message || "Something went wrong while saving expense.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -189,10 +233,18 @@ function Dashboard() {
     if (!confirmDelete) return;
 
     try {
-      await API.delete(`/expenses/${id}`);
+      setLoading(true);
+
+      const { error } = await supabase.from("expenses").delete().eq("id", id);
+
+      if (error) throw error;
+
       fetchExpenses();
     } catch (error) {
-      console.error("Failed to delete expense:", error);
+      console.error("Failed to delete expense:", error.message);
+      alert("Failed to delete expense.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -275,8 +327,7 @@ function Dashboard() {
   const pageDescription = {
     dashboard:
       "Manage expenses, track spending habits, and stay within your budget.",
-    expenses:
-      "Add, edit, delete, search, and filter your expense records.",
+    expenses: "Add, edit, delete, search, and filter your expense records.",
     reports:
       "Analyze your spending by category and understand your financial behavior.",
     budget:
@@ -295,7 +346,10 @@ function Dashboard() {
             <p>{pageDescription[activePage]}</p>
           </div>
 
+          
         </header>
+
+        {loading && <p className="loading-message">Loading, please wait...</p>}
 
         {activePage === "dashboard" && (
           <>
@@ -311,7 +365,7 @@ function Dashboard() {
                 icon={<ReceiptText size={22} />}
                 label="Total Expenses"
                 value={filteredExpenses.length}
-                note={`${expenses.length} saved in database`}
+                note={`${expenses.length} saved in Supabase`}
               />
 
               <SummaryCard
@@ -432,7 +486,7 @@ function Dashboard() {
                 icon={<ReceiptText size={22} />}
                 label="Total Records"
                 value={expenses.length}
-                note="Saved in MongoDB"
+                note="Saved in Supabase"
               />
 
               <SummaryCard
@@ -527,7 +581,7 @@ function BudgetSection({
 
       <div className="budget-controls">
         <input
-          type="integer"
+          type="number"
           value={monthlyBudget}
           min="0"
           onChange={(e) => setMonthlyBudget(Number(e.target.value))}
